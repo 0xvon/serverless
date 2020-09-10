@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: API Gateway and Lambda template for cloudprnt server
+
+Parameters:
+  AppName:
+    Type: String
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [lambda.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+        - PolicyName: !Sub ${AppName}LambdaExecutionPolicy
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogStream
+                - logs:CreateLogGroup
+                - logs:PutLogEvents
+                - dynamodb:GetItem
+                - dynamodb:Query
+                - dynamodb:DeleteItem
+              Resource: '*'
+
+  Sample:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code: ./lambda_functions/sample
+      FunctionName: !Sub ${AppName}-sample
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: nodejs12.x
+      Timeout: 300
+      ReservedConcurrentExecutions: 100
+      MemorySize: 128
+      Environment:
+        Variables:
+          hoge: hoge
+
+  Api:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub ${AppName}-API
+
+  SampleResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref Api
+      ParentId: !GetAtt Api.RootResourceId  
+      PathPart: sample
+
+  SamplePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Sample
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+
+  SampleResourceMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: SamplePermission
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !Ref SampleResource
+      AuthorizationType: None
+      HttpMethod: POST
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Join
+          - ""
+          - - !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:"
+            - !Ref Sample
+            - /invocations
+      MethodResponses:
+        - StatusCode: 200
+
+  APIGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: 
+      - SampleResourceMethod
+    Properties:
+      RestApiId: !Ref Api
+      StageName: prd
+  
+  APIGatewaySampleInvokeRole:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref Sample
+      Principal: apigateway.amazonaws.com

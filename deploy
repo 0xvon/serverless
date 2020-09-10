@@ -1,0 +1,20 @@
+#!bin/sh
+
+. ./.env
+ENV=$1
+if [ ${ENV} != "prd" ]; then
+    APP_NAME=${ENV}-${APP_NAME}
+fi
+
+aws cloudformation package \
+    --template-file template.yml \
+    --s3-bucket "${TEMPLATE_BUCKET}" \
+    --s3-prefix "${APP_NAME}" \
+    --output-template-file packaged-template.yml
+
+aws cloudformation deploy \
+    --template-file packaged-template.yml \
+    --stack-name "${APP_NAME}" \
+    --capabilities CAPABILITY_NAMED_IAM CAPABILITY_IAM \
+    --parameter-overrides \
+        AppName=${APP_NAME}
